@@ -28,9 +28,13 @@ public class ConsumerThread implements Runnable {
 
     @Override
     public void run() {
+        logger.info("Subscribing [{}]...", destination);
         CanalConnector canalConnector = canalConnectorFactory.newCanalConnector(destination);
         for (; ; ) {
             try {
+                if (canalConnector == null) {
+                    throw new NullPointerException();
+                }
                 // Get message
                 Message message = canalConnector.get(size);
                 List<DataChange> changes = getDataChanges(message);
@@ -43,12 +47,32 @@ public class ConsumerThread implements Runnable {
                 }
             } catch (Exception ex) {
                 logger.error(ex.getMessage(), ex);
-                if (canalConnector != null) {
-                    canalConnector.disconnect();
-                }
-                canalConnector = canalConnectorFactory.newCanalConnector(destination);
+                canalConnector = reconnect(canalConnector);
             }
         }
+    }
+
+    /**
+     * Reconnect when exception.
+     *
+     * @param canalConnector
+     */
+    private CanalConnector reconnect(CanalConnector canalConnector) {
+        try {
+            if (canalConnector != null) {
+                canalConnector.disconnect();
+                canalConnector = null;
+            }
+            canalConnector = canalConnectorFactory.newCanalConnector(destination);
+        } catch (Exception ex) {
+            logger.error(ex.getMessage(), ex);
+            try {
+                // Avoid reconnect frequently
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+            }
+        }
+        return canalConnector;
     }
 
     private List<DataChange> getDataChanges(Message message) {
